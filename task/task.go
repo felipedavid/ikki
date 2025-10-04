@@ -40,15 +40,15 @@ type Task struct {
 	Docker
 }
 
-func New() (*Task, error) {
-	t := &Task{}
+func New(config *Config) (*Task, error) {
 	client, err := client.NewClientWithOpts()
 	if err != nil {
 		return nil, err
 	}
 
-	t.Docker.Client = client
-
+	t := &Task{}
+	t.Config = *config
+	t.Client = client
 
 	return t, nil
 }
@@ -135,6 +135,41 @@ func (d *Docker) Run() DockerResult {
 	return DockerResult{
 		ContainerID: resp.ID,
 		Action: "start",
+		Result: "success",
+	}
+}
+
+func (d *Docker) Stop(id string) DockerResult {
+	ctx := context.Background()
+	stopOptions := container.StopOptions{}
+	err := d.Client.ContainerStop(ctx, id, stopOptions)
+	if err != nil {
+		slog.Error("Unable to stop the container", "container_id", id, "err", err)
+		return DockerResult{
+			ContainerID: id,
+			Action: "stop",
+			Error: err,
+		}
+	}
+
+	removeOptions := container.RemoveOptions{
+		RemoveVolumes: true,
+		RemoveLinks: false,
+		Force: false,
+	}
+	err = d.Client.ContainerRemove(ctx, id, removeOptions)
+	if err != nil {
+		slog.Error("Unable to remove the container", "container_id", id, "err", err)
+		return DockerResult{
+			ContainerID: id,
+			Action: "stop",
+			Error: err,
+		}
+	}
+
+	return DockerResult{
+		ContainerID: id,
+		Action: "stop",
 		Result: "success",
 	}
 }
