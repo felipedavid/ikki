@@ -1,34 +1,26 @@
 package utils
 
 type Queue struct {
-	start *Node
-	end *Node
-	length int
+	nodes []any
+	start int
 }
 
-type Node struct {
-	value any
-	next *Node
-}
 
 func (q *Queue) Enqueue(value any) {
-	node := &Node{value: value}
-
-	if q.length == 0 {
-		q.start = node
-		q.end = node
-	} else {
-		q.end.next = node
-		q.end = node
-	}
-	q.length++
+	q.nodes = append(q.nodes, value)
 }
 
 func (q *Queue) Dequeu() any {
-	if q.length == 0 {
-		return nil
+	if q.start >= len(q.nodes)/2 {
+		q.nodes = q.nodes[q.start:]
+		q.start = 0
 	}
-	firstNode := *q.start
-	q.start = firstNode.next
-	return firstNode.value
+
+	val := q.nodes[q.start]
+	q.start++
+	return val
+}
+
+func (q *Queue) Len() int {
+	return len(q.nodes) - q.start
 }
