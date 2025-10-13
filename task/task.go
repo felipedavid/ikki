@@ -26,157 +26,126 @@ const (
 )
 
 type Task struct {
-	ID uuid.UUID
-	Name string
-	State State
-	Image string
-	Memory int
-	Disk int
-	ExposedPorts nat.PortSet
-	PortBindings map[string]string
+	ID            uuid.UUID
+	ContainerID   string
+	Name          string
+	State         State
+	Image         string
+	Memory        int64
+	Cpu           float64
+	Disk          int
+	ExposedPorts  nat.PortSet
+	PortBindings  map[string]string
 	RestartPolicy string
-	StartTime time.Time
-	FinishTime time.Time
-	Docker
+	StartTime     time.Time
+	FinishTime    time.Time
+	Env           []string
 }
 
-func New(config *Config) (*Task, error) {
-	client, err := client.NewClientWithOpts()
-	if err != nil {
-		return nil, err
-	}
-
-	t := &Task{}
-	t.Config = *config
-	t.Client = client
-
-	return t, nil
+type TaskResult struct {
+	Error       error
+	Action      string
+	ContainerID string
+	Result      string
 }
 
 type TaskEvent struct {
-	ID uuid.UUID
-	State State
+	ID        uuid.UUID
+	State     State
 	Timestamp time.Time
-	Task Task
+	Task      Task
 }
 
-type Config struct {
-	Name string
-	AttachStdin bool
-	AttachStdout bool
-	AttachStderr bool
-	ExposedPorts nat.PortSet
-	Cmd []string
-	Image string
-	Cpu float64
-	Memory int64
-	Disk int64
-	Env []string
-	RestartPolicy string
-}
-
-type Docker struct {
-	Client *client.Client
-	Config Config
-}
-
-func (d *Docker) Run() DockerResult {
+func (t *Task) Run(dc *client.Client) TaskResult {
 	ctx := context.Background()
-	_, err := d.Client.ImagePull(ctx, d.Config.Image, image.PullOptions{})
+	_, err := dc.ImagePull(ctx, t.Image, image.PullOptions{})
 	if err != nil {
-		slog.Error("Error pulling image", "err", err, "name", d.Config.Image)
-		return DockerResult{
+		slog.Error("Error pulling image", "err", err, "name", t.Image)
+		return TaskResult{
 			Error: err,
 		}
 	}
 
 	restartPolicy := container.RestartPolicy{
-		Name: container.RestartPolicyMode(d.Config.RestartPolicy),
+		Name: container.RestartPolicyMode(t.RestartPolicy),
 	}
 
 	resources := container.Resources{
-		Memory: d.Config.Memory,
-		NanoCPUs: int64(d.Config.Cpu * math.Pow(10, 9)),
+		Memory:   t.Memory,
+		NanoCPUs: int64(t.Cpu * math.Pow(10, 9)),
 	}
 
 	config := container.Config{
-		Image: d.Config.Image,
-		Tty: false,
-		Env: d.Config.Env,
-		ExposedPorts: d.Config.ExposedPorts,
+		Image:        t.Image,
+		Tty:          false,
+		Env:          t.Env,
+		ExposedPorts: t.ExposedPorts,
 	}
 
 	hostConfig := container.HostConfig{
-		RestartPolicy: restartPolicy,
-		Resources: resources,
+		RestartPolicy:   restartPolicy,
+		Resources:       resources,
 		PublishAllPorts: true,
 	}
 
-	resp, err := d.Client.ContainerCreate(ctx, &config, &hostConfig, nil, nil, d.Config.Name)
+	resp, err := dc.ContainerCreate(ctx, &config, &hostConfig, nil, nil, t.Name)
 	if err != nil {
-		slog.Error("Error creating the container", "err", err, "image", d.Config.Name)
-		return DockerResult{Error: err}
+		slog.Error("Error creating the container", "err", err, "image", t.Image)
+		return TaskResult{Error: err}
 	}
 
-	err = d.Client.ContainerStart(ctx, resp.ID, container.StartOptions{})
+	err = dc.ContainerStart(ctx, resp.ID, container.StartOptions{})
 	if err != nil {
-		return DockerResult{Error: err}
+		return TaskResult{Error: err}
 	}
 
-	//d.Config.Runtime.ContainerID = resp.ID
+	t.ContainerID = resp.ID
 
-	containerLogs, err := d.Client.ContainerLogs(ctx, resp.ID, container.LogsOptions{ShowStdout: true, ShowStderr: true})
+	containerLogs, err := dc.ContainerLogs(ctx, resp.ID, container.LogsOptions{ShowStdout: true, ShowStderr: true})
 	if err != nil {
 		slog.Error("Unable to get container logs", "err", err, "container_id", resp.ID)
 	}
 
 	stdcopy.StdCopy(os.Stdout, os.Stderr, containerLogs)
 
-	return DockerResult{
+	return TaskResult{
 		ContainerID: resp.ID,
-		Action: "start",
-		Result: "success",
+		Action:      "start",
+		Result:      "success",
 	}
 }
 
-func (d *Docker) Stop(id string) DockerResult {
+func (t *Task) Stop(cl *client.Client) TaskResult {
 	ctx := context.Background()
 	stopOptions := container.StopOptions{}
-	err := d.Client.ContainerStop(ctx, id, stopOptions)
+	err := cl.ContainerStop(ctx, t.ContainerID, stopOptions)
 	if err != nil {
-		slog.Error("Unable to stop the container", "container_id", id, "err", err)
-		return DockerResult{
-			ContainerID: id,
-			Action: "stop",
-			Error: err,
+		slog.Error("Unable to stop the container", "container_id", t.ContainerID, "err", err)
+		return TaskResult{
+			ContainerID: t.ContainerID,
+			Action:      "stop",
+			Error:       err,
 		}
 	}
 
 	removeOptions := container.RemoveOptions{
 		RemoveVolumes: true,
-		RemoveLinks: false,
-		Force: false,
+		RemoveLinks:   false,
+		Force:         false,
 	}
-	err = d.Client.ContainerRemove(ctx, id, removeOptions)
+	err = cl.ContainerRemove(ctx, t.ContainerID, removeOptions)
 	if err != nil {
-		slog.Error("Unable to remove the container", "container_id", id, "err", err)
-		return DockerResult{
-			ContainerID: id,
-			Action: "stop",
-			Error: err,
+		slog.Error("Unable to remove the container", "container_id", t.ContainerID, "err", err)
+		return TaskResult{
+			ContainerID: t.ContainerID,
+			Action:      "stop",
+			Error:       err,
 		}
 	}
 
-	return DockerResult{
-		ContainerID: id,
-		Action: "stop",
-		Result: "success",
+	return TaskResult{
+		ContainerID: t.ContainerID,
+		Action:      "stop",
+		Result:      "success",
 	}
-}
-
-type DockerResult struct {
-	Error error
-	Action string
-	ContainerID string
-	Result string
 }

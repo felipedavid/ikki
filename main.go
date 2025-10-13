@@ -2,12 +2,13 @@ package main
 
 import (
 	"fmt"
+	"github.com/docker/docker/client"
 	"ikki/task"
 )
 
 func main() {
-	taskConfig := &task.Config{
-		Name: "test-container-1",
+	t := &task.Task{
+		Name:  "test-container-1",
 		Image: "postgres:latest",
 		Env: []string{
 			"POSTGRES_USER=me",
@@ -15,12 +16,12 @@ func main() {
 		},
 	}
 
-	task, err := task.New(taskConfig)
+	cli, err := client.NewClientWithOpts()
 	if err != nil {
 		panic(err)
 	}
 
-	result := task.Run()
+	result := t.Run(cli)
 	if result.Error != nil {
 		panic(result.Error)
 	}
