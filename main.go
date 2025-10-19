@@ -2,8 +2,9 @@ package main
 
 import (
 	"fmt"
-	"github.com/docker/docker/client"
 	"ikki/task"
+	"ikki/worker"
+	"time"
 )
 
 func main() {
@@ -16,15 +17,21 @@ func main() {
 		},
 	}
 
-	cli, err := client.NewClientWithOpts()
+	w, err := worker.New()
 	if err != nil {
 		panic(err)
 	}
+	result := w.StartTask(t)
+	fmt.Printf("Test container started successfully. (container_id: %s)\n", result.ContainerID)
 
-	result := t.Run(cli)
+	fmt.Println("Waiting for 10 seconds")
+	time.Sleep(time.Second * 10)
+
+	fmt.Println("Getting rid of the task")
+	result = w.StopTask(t)
+
 	if result.Error != nil {
 		panic(result.Error)
 	}
 
-	fmt.Printf("Test container started successfully. (container_id: %s)", result.ContainerID)
 }

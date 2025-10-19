@@ -1,11 +1,10 @@
 package worker
 
 import (
-	"fmt"
+	"github.com/docker/docker/client"
 	"ikki/task"
 	"ikki/utils"
 	"log/slog"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -15,44 +14,40 @@ type Worker struct {
 	Queue     utils.Queue
 	Db        map[uuid.UUID]*task.Task
 	TaskCount int
+	dClient   *client.Client
 }
 
-func (w *Worker) CollectStats() {
-	fmt.Println("I will collect stats")
-}
-
-func (w *Worker) RunTask() {
-	fmt.Println("I will start or stop the task")
-}
-
-func (w *Worker) StartTask() {
-	fmt.Println("I will start a task")
-}
-
-func (w *Worker) StartTask(t *task.Task) task.DockerResult {
-	d, err := task.NewDocker(nil)
+func New() (*Worker, error) {
+	clt, err := client.NewClientWithOpts()
 	if err != nil {
-		return task.DockerResult{Error: err}
+		return nil, err
 	}
 
-	t.Docker = d
-	result := t.Run()
+	return &Worker{
+		dClient: clt,
+	}, nil
+}
+
+func (w *Worker) AddTask(t *task.Task) {
+	w.Queue.Enqueue(t)
+}
+
+func (w *Worker) StartTask(t *task.Task) task.TaskResult {
+	result := t.Run(w.dClient)
+	if result.Error != nil {
+		slog.Error("Error running task", "task_id", t.ID, "error", result.Error)
+		t.State = task.Failed
+		return result
+	}
 
 	return result
 }
 
-func (w *Worker) StopTask(t *task.Task) task.DockerResult {
-	d, err := task.NewDocker(nil)
-	if err != nil {
-		return task.DockerResult{Error: err}
-	}
-
-	result := d.Stop(t.ContainerID)
+func (w *Worker) StopTask(t *task.Task) task.TaskResult {
+	result := t.Stop(w.dClient)
 	if result.Error != nil {
 		slog.Error("Unable to stop container", "container_id", t.ContainerID)
 	}
-	t.FinishTime = time.Now().UTC()
-	t.State = task.Completed
 
 	return result
 }

@@ -100,6 +100,7 @@ func (t *Task) Run(dc *client.Client) TaskResult {
 	}
 
 	t.ContainerID = resp.ID
+	t.State = Running
 
 	containerLogs, err := dc.ContainerLogs(ctx, resp.ID, container.LogsOptions{ShowStdout: true, ShowStderr: true})
 	if err != nil {
@@ -142,6 +143,9 @@ func (t *Task) Stop(cl *client.Client) TaskResult {
 			Error:       err,
 		}
 	}
+
+	t.FinishTime = time.Now().UTC()
+	t.State = Completed
 
 	return TaskResult{
 		ContainerID: t.ContainerID,
