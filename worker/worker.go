@@ -40,6 +40,8 @@ func (w *Worker) StartTask(t *task.Task) task.TaskResult {
 		return result
 	}
 
+	t.State = task.Running
+
 	return result
 }
 
@@ -48,6 +50,8 @@ func (w *Worker) StopTask(t *task.Task) task.TaskResult {
 	if result.Error != nil {
 		slog.Error("Unable to stop container", "container_id", t.ContainerID)
 	}
+
+	t.State = task.Completed
 
 	return result
 }
